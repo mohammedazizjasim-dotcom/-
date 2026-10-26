@@ -1,0 +1,285 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>نظام اكتشاف السقوط</title>
+<style>
+body {
+  font-family: Arial, sans-serif;
+  text-align: center;
+  background: #f1f5f9;
+  padding: 16px;
+}
+video {
+  width: 100%;
+  max-width: 500px;
+  background: #222;
+  border-radius: 12px;
+}
+button {
+  padding: 12px 20px;
+  margin: 8px;
+  background: #1769aa;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+}
+#status {
+  padding: 16px;
+  margin: 12px auto;
+  background: white;
+  border-radius: 10px;
+  max-width: 500px;
+}
+</style>
+</head>
+<body>
+
+<h2>نظام اكتشاف السقوط</h2>
+<p>أظهر الجسم كاملًا أمام الكاميرا.</p>
+
+<video id="camera" autoplay playsinline muted></video>
+<div id="status">اضغط تشغيل الكاميرا.</div>
+
+<button id="start">تشغيل الكاميرا</button>
+<button id="stop">إيقاف</button>
+
+<script type="module">
+import {
+  PoseLandmarker,
+  FilesetResolver
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+const video = document.getElementById("camera");
+const statusBox = document.getElementById("status");
+
+let detector;
+let stream;
+let active = false;
+let lastFrame = -1;
+let horizontalStart = 0;
+let previousHipY = null;
+let previousTime = 0;
+let lastUprightTime = 0;
+let lastDropTime = 0;
+let alerted = false;
+
+async function startCamera() {
+  try {
+    statusBox.textContent = "جارٍ تحميل الذكاء الاصطناعي...";
+
+    if (!detector) {
+      const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+      );
+
+      detector = await PoseLandmarker.createFromOptions(
+        vision,
+        {
+          baseOptions: {
+            modelAssetPath:
+              "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task"
+          },
+          runningMode: "VIDEO",
+          numPoses: 1,
+          minPoseDetectionConfidence: 0.4,
+          minTrackingConfidence: 0.4
+        }
+      );
+    }
+
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 640 },
+        height: { ideal: 480 }
+      }
+    });
+
+    video.srcObject = stream;
+    await video.play();
+
+    active = true;
+    horizontalStart = 0;
+    previousHipY = null;
+    previousTime = 0;
+    lastUprightTime = 0;
+    lastDropTime = 0;
+    alerted = false;
+    lastFrame = -1;
+
+    statusBox.textContent = "الكاميرا تعمل.";
+    requestAnimationFrame(analyze);
+
+  } catch (error) {
+    console.error(error);
+    statusBox.textContent =
+      "تعذر التشغيل. افتح الصفحة عبر HTTPS وتأكد من الإنترنت وإذن الكاميرا.";
+  }
+}
+
+function analyze() {
+  if (!active) return;
+
+  if (video.readyState >= 2 &&
+      video.currentTime !== lastFrame) {
+
+    lastFrame = video.currentTime;
+
+    try {
+      const now = performance.now();
+
+      const result = detector.detectForVideo(video, now);
+      const pose = result.landmarks?.[0];
+
+      if (!pose) {
+        horizontalStart = 0;
+        statusBox.textContent =
+          "لم يتم العثور على الجسم. أظهر جسمك كاملًا.";
+      } else {
+        const shoulderL = pose[11];
+        const shoulderR = pose[12];
+        const hipL = pose[23];
+        const hipR = pose[24];
+
+        const points = [
+          shoulderL, shoulderR, hipL, hipR
+        ];
+
+        const visible = points.every(
+          p => p && (p.visibility === undefined ||
+                     p.visibility > 0.35)
+        );
+
+        if (!visible) {
+          statusBox.textContent =
+            "الكتفان أو الوركان غير واضحين.";
+          horizontalStart = 0;
+        } else {
+          const sx =
+            (shoulderL.x + shoulderR.x) / 2;
+          const sy =
+            (shoulderL.y + shoulderR.y) / 2;
+          const hx =
+            (hipL.x + hipR.x) / 2;
+          const hy =
+            (hipL.y + hipR.y) / 2;
+
+          const aspect =
+            video.videoWidth / video.videoHeight;
+
+          const dx = (hx - sx) * aspect;
+          const dy = hy - sy;
+
+          const angle = Math.abs(
+            Math.atan2(dy, dx) * 180 / Math.PI
+          );
+
+          const horizontal =
+            angle < 45 || angle > 135;
+
+          const upright =
+            angle > 60 && angle < 120;
+
+          if (upright) {
+            lastUprightTime = now;
+          }
+
+          if (previousHipY !== null && previousTime) {
+            const dt = Math.max(
+              0.03, (now - previousTime) / 1000
+            );
+
+            const speed = (hy - previousHipY) / dt;
+
+            if (speed > 0.65) {
+              lastDropTime = now;
+            }
+          }
+
+          if (horizontal) {
+            if (!horizontalStart) {
+              horizontalStart = now;
+            }
+
+            const duration =
+              (now - horizontalStart) / 1000;
+
+            const recentChange =
+              now - lastUprightTime < 3000 ||
+              now - lastDropTime < 2200;
+
+            if (duration >= 1.2 &&
+                recentChange && !alerted) {
+
+              alerted = true;
+              statusBox.style.background = "#ffe0e0";
+              statusBox.textContent =
+                "⚠️ سقوط محتمل! تحقق من الشخص.";
+
+              if (navigator.vibrate) {
+                navigator.vibrate([250, 120, 250]);
+              }
+
+            } else if (!alerted) {
+              statusBox.style.background = "#fff4cc";
+              statusBox.textContent =
+                "وضعية أفقية... " +
+                duration.toFixed(1) +
+                " ثانية. الزاوية: " +
+                Math.round(angle) + "°";
+            }
+
+          } else {
+            horizontalStart = 0;
+            alerted = false;
+            statusBox.style.background = "white";
+            statusBox.textContent =
+              "النظام يعمل. زاوية الجسم: " +
+              Math.round(angle) + "°";
+          }
+
+          previousHipY = hy;
+          previousTime = now;
+        }
+      }
+    } catch (error) {
+      console.error(error);
+      statusBox.textContent =
+        "حدث خطأ أثناء تحليل الصورة.";
+    }
+  }
+
+  if (active) {
+    requestAnimationFrame(analyze);
+  }
+}
+
+function stopCamera() {
+  active = false;
+
+  if (stream) {
+    stream.getTracks().forEach(
+      track => track.stop()
+    );
+    stream = null;
+  }
+
+  video.srcObject = null;
+  statusBox.style.background = "white";
+  statusBox.textContent = "تم إيقاف الكاميرا.";
+}
+
+document.getElementById("start")
+  .addEventListener("click", startCamera);
+
+document.getElementById("stop")
+  .addEventListener("click", stopCamera);
+</script>
+
+</body>
+</html>
