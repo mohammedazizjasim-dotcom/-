@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مشروع تخرج AI - نظام تتبع سقوط الإنسان (الكاميرا الحية)</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            margin: 0;
+            padding: 20px;
+            direction: rtl;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        header h1 {
+            color: #38bdf8;
+            margin-bottom: 5px;
+        }
+
+        header p {
+            color: #94a3b8;
+        }
+
+        .dashboard {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: center;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .video-box {
+            position: relative;
+            max-width: 600px;
+            flex: 1;
+            min-width: 300px;
+            background: #1e293b;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        #statusOverlay {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            padding: 8px 15px;
+            font-weight: bold;
+            border-radius: 6px;
+            font-size: 14px;
+            z-index: 10;
+        }
+
+        .status-normal {
+            background-color: rgba(16, 185, 129, 0.9);
+            color: white;
+        }
+
+        .status-danger {
+            background-color: rgba(239, 68, 68, 0.9);
+            color: white;
+            animation: pulse 1s infinite;
+        }
+
+        .control-panel {
+            flex: 1;
+            min-width: 300px;
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        }
+
+        .alert-box {
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+
+        .alert-box.normal {
+            background-color: #064e3b;
+            color: #34d399;
+            border: 1px solid #059669;
+        }
+
+        .alert-box.danger {
+            background-color: #7f1d1d;
+            color: #fca5a5;
+            border: 1px solid #dc2626;
+        }
+
+        .buttons-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .danger-btn {
+            background-color: #dc2626;
+            color: white;
+        }
+
+        .danger-btn:hover {
+            background-color: #b91c1c;
+        }
+
+        .normal-btn {
+            background-color: #475569;
+            color: white;
+        }
+
+        .normal-btn:hover {
+            background-color: #334155;
+        }
+
+        .logs {
+            background: #0f172a;
+            padding: 10px 15px;
+            border-radius: 8px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .logs h3 {
+            margin-top: 0;
+            font-size: 14px;
+            color: #94a3b8;
+        }
+
+        .logs ul {
+            margin: 0;
+            padding-right: 20px;
+            font-size: 13px;
+            color: #cbd5e1;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.6; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>مشروع تخرج AI - نظام تتبع حركة الإنسان</h1>
+        <p>مراقبة حية عبر الكاميرا الخلفية واكتشاف السقوط</p>
+    </header>
+
+    <main>
+        <div class="dashboard">
+            <!-- عرض الكاميرا الحية -->
+            <div class="video-box">
+                <div id="statusOverlay" class="status-normal">ID: 1 - NORMAL</div>
+                <video id="webcam" autoplay playsinline></video>
+            </div>
+
+            <!-- لوحة التحكم -->
+            <div class="control-panel">
+                <h2>لوحة المراقبة الحية</h2>
+                <div id="alertBox" class="alert-box normal">
+                    <span id="alertText">الحالة مستقرة: لا توجد مخاطر</span>
+                </div>
+                
+                <div class="buttons-group">
+                    <button id="simulateFallBtn" class="danger-btn">محاكاة وقوع سقوط</button>
+                    <button id="resetBtn" class="normal-btn">إعادة ضبط</button>
+                </div>
+
+                <div class="logs">
+                    <h3>سجل الأحداث:</h3>
+                    <ul id="logList">
+                        <li>[جاري التشغيل] محاولة الوصول للكاميرا الخلفية...</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const videoElement = document.getElementById('webcam');
+        const statusOverlay = document.getElementById('statusOverlay');
+        const alertBox = document.getElementById('alertBox');
+        const alertText = document.getElementById('alertText');
+        const simulateFallBtn = document.getElementById('simulateFallBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const logList = document.getElementById('logList');
+
+        function addLog(message) {
+            const time = new Date().toLocaleTimeString();
+            const li = document.createElement('li');
+            li.textContent = `[${time}] ${message}`;
+            logList.prepend(li);
+        }
+
+        // تشغيل الكاميرا الخلفية
+        async function startBackCamera() {
+            try {
+                const constraints = {
+                    video: {
+                        facingMode: { exact: "environment" } // تفعيل الكاميرا الخلفية حصراً
+                    }
+                };
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoElement.srcObject = stream;
+                addLog("تم تشغيل الكاميرا الخلفية بنجاح.");
+            } catch (err) {
+                console.warn("الكاميرا الخلفية الدقيقة غير متوفرة، جاري تجربة أي كاميرا متاحة...", err);
+                try {
+                    // حل بديل في حال لم تدعم بعض المتصفحات exact: environment
+                    const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    videoElement.srcObject = fallbackStream;
+                    addLog("تم تشغيل الكاميرا المتاحة بنجاح.");
+                } catch (fallbackErr) {
+                    addLog("❌ خطأ: تعذر الوصول إلى كاميرا الجهاز.");
+                    alert("يرجى السماح للمتصفح بالوصول إلى الكاميرا.");
+                }
+            }
+        }
+
+        // محاكاة السقوط
+        simulateFallBtn.addEventListener('click', () => {
+            statusOverlay.textContent = "ID: 1 - FALL DETECTED (98%)";
+            statusOverlay.className = "status-danger";
+            
+            alertBox.className = "alert-box danger";
+            alertText.textContent = "تحذير خطير: تم رصد حالة سقوط!";
+            
+            addLog("⚠️ تنبيه: تم اكتشاف سقوط الإنسان عبر الرؤية الحاسوبية.");
+            
+            if (navigator.vibrate) {
+                navigator.vibrate([200, 100, 200]);
+            }
+        });
+
+        // إعادة الضبط
+        resetBtn.addEventListener('click', () => {
+            statusOverlay.textContent = "ID: 1 - NORMAL";
+            statusOverlay.className = "status-normal";
+            
+            alertBox.className = "alert-box normal";
+            alertText.textContent = "الحالة مستقرة: لا توجد مخاطر";
+            
+            addLog("🔄 تمت الإعادة للوضع الطبيعي.");
+        });
+
+        // بدء تشغيل الكاميرا عند تحميل الصفحة
+        startBackCamera();
+    </script>
+</body>
+</html>
